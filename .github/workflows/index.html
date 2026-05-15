@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>미국 배당 일정 Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+    background: #0a0e1a;
+    color: #e4e7eb;
+    padding: 24px;
+    min-height: 100vh;
+  }
+  .header {
+    border-bottom: 2px solid #f59e0b;
+    padding-bottom: 16px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  h1 { font-size: 28px; font-weight: 700; }
+  .subtitle { font-size: 14px; color: #9ca3af; margin-top: 4px; }
+  .meta { font-size: 13px; color: #9ca3af; text-align: right; }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: #1a2236;
+    border-radius: 8px;
+    padding: 16px 20px;
+  }
+  .stat-value { font-size: 32px; font-weight: 700; color: #f59e0b; }
+  .stat-label { font-size: 13px; color: #9ca3af; margin-top: 4px; }
+
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  input, select, button {
+    background: #1a2236;
+    border: 1px solid #2d3748;
+    color: #e4e7eb;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  input { width: 200px; }
+  button {
+    cursor: pointer;
+    background: #f59e0b;
+    color: #0a0e1a;
+    border: none;
+    font-weight: 600;
+  }
+  button:hover { background: #fbbf24; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #0f1524;
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 14px;
+  }
+  th {
+    background: #1a2236;
+    padding: 12px 14px;
+    text-align: left;
+    font-size: 13px;
+    color: #9ca3af;
+    font-weight: 600;
+    border-bottom: 1px solid #2d3748;
+  }
+  td {
+    padding: 12px 14px;
+    border-bottom: 1px solid #1a2236;
+  }
+  tr:hover td { background: #131a2c; }
+  .symbol { color: #60a5fa; font-weight: 600; }
+  .yield-high { color: #34d399; font-weight: 600; }
+  .yield-mid { color: #fbbf24; }
+  .empty {
+    text-align: center;
+    padding: 60px;
+    color: #6b7280;
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>🇺🇸 미국 배당 일정 Dashboard</h1>
+      <div class="subtitle">NASDAQ 공개 데이터 · GitHub Pages 자동 갱신</div>
+    </div>
+    <div class="meta" id="meta">로딩 중...</div>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card"><div class="stat-value" id="stat-total">-</div><div class="stat-label">전체 종목</div></div>
+    <div class="stat-card"><div class="stat-value" id="stat-today">-</div><div class="stat-label">오늘 배당락</div></div>
+    <div class="stat-card"><div class="stat-value" id="stat-week">-</div><div class="stat-label">이번 주 (7일)</div></div>
+    <div class="stat-card"><div class="stat-value" id="stat-high-yield">-</div><div class="stat-label">고배당 (5%+)</div></div>
+  </div>
+
+  <div class="controls">
+    <input type="text" id="search" placeholder="티커/회사명 검색...">
+    <select id="filter-date">
+      <option value="">전체 날짜</option>
+    </select>
+    <select id="filter-yield">
+      <option value="">전체 수익률</option>
+      <option value="high">5% 이상</option>
+      <option value="mid">2~5%</option>
+      <option value="low">2% 미만</option>
+    </select>
+    <button onclick="resetFilters()">초기화</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>배당락일</th>
+        <th>티커</th>
+        <th>회사명</th>
+        <th>배당금</th>
+        <th>배당수익률</th>
+        <th>지급일</th>
+        <th>공시일</th>
+      </tr>
+    </thead>
+    <tbody id="tbody">
+      <tr><td colspan="7" class="empty">데이터 로딩 중...</td></tr>
+    </tbody>
+  </table>
+
+<script>
+let allData = [];
+
+async function loadData() {
+  try {
+    const res = await fetch('data/dividends.json?t=' + Date.now());
+    const data = await res.json();
+    allData = data.dividends || [];
+
+    document.getElementById('meta').textContent =
+      `생성시각 ${data.generated_at?.slice(0, 19).replace('T', ' ')} · ${data.total_count}건`;
+
+    populateDateFilter();
+    updateStats();
+    render();
+  } catch (e) {
+    document.getElementById('tbody').innerHTML =
+      `<tr><td colspan="7" class="empty">데이터를 불러올 수 없습니다. 첫 실행 시 GitHub Actions 완료 후 다시 시도하세요.</td></tr>`;
+  }
+}
+
+function populateDateFilter() {
+  const dates = [...new Set(allData.map(d => d.ex_date))].sort();
+  const sel = document.getElementById('filter-date');
+  dates.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d;
+    opt.textContent = d;
+    sel.appendChild(opt);
+  });
+}
+
+function parseYield(v) {
+  if (!v) return 0;
+  const n = parseFloat(String(v).replace('%', ''));
+  return isNaN(n) ? 0 : n;
+}
+
+function updateStats() {
+  const today = new Date().toISOString().slice(0, 10);
+  const weekLater = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+
+  document.getElementById('stat-total').textContent = allData.length;
+  document.getElementById('stat-today').textContent =
+    allData.filter(d => d.ex_date === today).length;
+  document.getElementById('stat-week').textContent =
+    allData.filter(d => d.ex_date >= today && d.ex_date <= weekLater).length;
+  document.getElementById('stat-high-yield').textContent =
+    allData.filter(d => parseYield(d.dividend_Yield || d.yield) >= 5).length;
+}
+
+function render() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const dateFilter = document.getElementById('filter-date').value;
+  const yieldFilter = document.getElementById('filter-yield').value;
+
+  const filtered = allData.filter(d => {
+    const sym = (d.symbol || '').toLowerCase();
+    const name = (d.companyName || d.name || '').toLowerCase();
+    if (q && !sym.includes(q) && !name.includes(q)) return false;
+    if (dateFilter && d.ex_date !== dateFilter) return false;
+    const y = parseYield(d.dividend_Yield || d.yield);
+    if (yieldFilter === 'high' && y < 5) return false;
+    if (yieldFilter === 'mid' && (y < 2 || y >= 5)) return false;
+    if (yieldFilter === 'low' && y >= 2) return false;
+    return true;
+  });
+
+  const tbody = document.getElementById('tbody');
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">조건에 맞는 데이터가 없습니다.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(d => {
+    const y = parseYield(d.dividend_Yield || d.yield);
+    const yieldClass = y >= 5 ? 'yield-high' : y >= 2 ? 'yield-mid' : '';
+    return `
+      <tr>
+        <td>${d.ex_date || '-'}</td>
+        <td class="symbol">${d.symbol || '-'}</td>
+        <td>${d.companyName || d.name || '-'}</td>
+        <td>${d.dividend_Rate || d.amount || '-'}</td>
+        <td class="${yieldClass}">${d.dividend_Yield || d.yield || '-'}</td>
+        <td>${d.payment_Date || d.paymentDate || '-'}</td>
+        <td>${d.announcement_Date || d.declarationDate || '-'}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function resetFilters() {
+  document.getElementById('search').value = '';
+  document.getElementById('filter-date').value = '';
+  document.getElementById('filter-yield').value = '';
+  render();
+}
+
+document.getElementById('search').addEventListener('input', render);
+document.getElementById('filter-date').addEventListener('change', render);
+document.getElementById('filter-yield').addEventListener('change', render);
+
+loadData();
+</script>
+</body>
+</html>
